@@ -1,10 +1,5 @@
 pipeline {
-    agent {
-        docker {
-            image 'maven:3.8.4-openjdk-17-slim'
-            args '--user root -v /var/run/docker.sock:/var/run/docker.sock'
-        }
-    }
+    agent any 
 
     stages {
         stage('Checkout') {
@@ -15,7 +10,7 @@ pipeline {
 
         stage('Build and Test') {
             steps {
-                // Navigating to the app directory and building while skipping tests to save disk space
+                // This assumes Maven is installed on your EC2
                 sh 'cd java-maven-sonar-argocd-helm-k8s/spring-boot-app && mvn clean package -DskipTests'
             }
         }
@@ -26,7 +21,6 @@ pipeline {
             }
             steps {
                 withCredentials([string(credentialsId: 'sonarqube-cred', variable: 'SONAR_TOKEN')]) {
-                    // Using double quotes for the shell script to ensure variable expansion
                     sh """
                         cd java-maven-sonar-argocd-helm-k8s/spring-boot-app && \
                         mvn sonar:sonar \
@@ -45,7 +39,7 @@ pipeline {
             }
             steps {
                 script {
-                    // Building the image using the host's Docker daemon
+                    // This will now work because it uses the Docker installed on your EC2
                     sh 'cd java-maven-sonar-argocd-helm-k8s/spring-boot-app && docker build -t ${DOCKER_IMAGE} .'
                     
                     withCredentials([usernamePassword(credentialsId: 'docker-cred', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
@@ -67,13 +61,13 @@ pipeline {
                         git config user.email "jaisarun53@users.noreply.github.com"
                         git config user.name "jaisarun53"
                         
-                        # Use sed to update the image tag for ArgoCD to detect
+                        # Navigate to the manifests and update the image tag
                         sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
                         
                         git add java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
                         git commit -m "Update deployment image to version ${BUILD_NUMBER} [skip ci]"
                         
-                        # Pushing back to your repository
+                        # Push back to your personal fork
                         git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git HEAD:main
                     '''
                 }
