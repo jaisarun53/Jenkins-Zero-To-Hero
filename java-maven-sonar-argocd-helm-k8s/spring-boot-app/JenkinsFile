@@ -1,23 +1,21 @@
 pipeline {
-    agent any 
-
-    // This ensures that even if you have multiple builds, they don't overlap
-    options {
-        buildDiscarder(logRotator(numToKeepStr: '5'))
-        timestamps()
+    agent {
+        docker {
+            // Using a more robust image or mounting the docker binary from the host
+            image 'maven:3.8.4-openjdk-17-slim'
+            args '--user root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker'
+        }
     }
 
     stages {
         stage('Checkout') {
             steps {
-                sh 'echo "Checking out code from GitHub..." '
                 checkout scm
             }
         }
 
         stage('Build and Test') {
             steps {
-                // Navigating to the Spring Boot app directory
                 dir('java-maven-sonar-argocd-helm-k8s/spring-boot-app') {
                     sh 'mvn clean package -DskipTests'
                 }
@@ -50,10 +48,9 @@ pipeline {
             steps {
                 script {
                     dir('java-maven-sonar-argocd-helm-k8s/spring-boot-app') {
-                        // Build the Docker image
+                        // This works now because we mounted /usr/bin/docker from the host
                         sh "docker build -t ${DOCKER_IMAGE} ."
                         
-                        // Push to Docker Hub
                         withCredentials([usernamePassword(credentialsId: 'docker-cred', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
                             sh "echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin"
                             sh "docker push ${DOCKER_IMAGE}"
@@ -73,14 +70,9 @@ pipeline {
                     sh '''
                         git config user.email "jaisarun53@users.noreply.github.com"
                         git config user.name "jaisarun53"
-                        
-                        # Update the deployment manifest with the new build number
                         sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
-                        
                         git add java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
                         git commit -m "Update deployment image to version ${BUILD_NUMBER} [skip ci]"
-                        
-                        # Push changes back to GitHub so ArgoCD can sync
                         git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git HEAD:main
                     '''
                 }
